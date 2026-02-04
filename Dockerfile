@@ -1,29 +1,19 @@
 FROM node:20-slim AS base
 WORKDIR /app
 
-# --- Dependencies ---
 FROM base AS deps
 COPY package.json package-lock.json* ./
-RUN npm ci || npm install
+RUN npm ci
 
-# --- Build ---
 FROM base AS build
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
-RUN npm run build
+RUN npm run build && cp -r .next/static .next/standalone/.next/static && cp -r public .next/standalone/public
 
-# --- Production ---
-FROM base AS production
+FROM node:20-slim
+WORKDIR /app
+USER node
+COPY --from=build --chown=node:node /app/.next/standalone ./
 ENV NODE_ENV=production
-ENV PORT=8080
-ENV HOST=0.0.0.0
-ENV CONNECTION_TIMEOUT_MS=30000
-ENV KEEPALIVE_MS=300000
-
-COPY --from=build /app/.next/standalone ./
-COPY --from=build /app/.next/static ./.next/static
-COPY --from=build /app/public ./public
-
 EXPOSE 8080
-
 CMD ["node", "server.js"]

@@ -1,0 +1,97 @@
+# Sample Trigger.dev deployment with warm start service
+# See: https://trigger.dev/docs/open-source-self-hosting
+
+name: trigger-worker
+
+services:
+  # Warm Start Service - matches idle runners to incoming runs
+  warm-start:
+    image: ghcr.io/oemuap/warm-start-service:latest
+    # build: .  # Uncomment to build locally
+    restart: ${RESTART_POLICY:-unless-stopped}
+    ports:
+      - "8080:8080"
+    environment:
+      - PORT=8080
+      - CONNECTION_TIMEOUT_MS=30000
+      - KEEPALIVE_MS=300000
+    networks:
+      - trigger-supervisor
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # Supervisor - orchestrates task execution and manages runners
+  supervisor:
+    image: ghcr.io/triggerdotdev/supervisor:${TRIGGER_IMAGE_TAG:-v4-beta}
+    restart: ${RESTART_POLICY:-unless-stopped}
+    depends_on:
+      warm-start:
+        condition: service_healthy
+      docker-proxy:
+        condition: service_healthy
+    networks:
+      - trigger-supervisor
+      - trigger-docker-proxy
+    volumes:
+      - shared:/home/node/shared
+    # Only needed for bootstrap
+    user: root
+    # Only needed for bootstrap
+    command: sh -c "chown -R node:node /home/node/shared && exec /usr/bin/dumb-init -- pnpm run --filter supervisor start"
+    environment:
+      # this is needed to see the name of worker instance in warm start dashboard
+      TRIGGER_WORKER_INSTANCE_NAME: ${TRIGGER_WORKER_INSTANCE_NAME:-worker-1}
+      TRIGGER_WORKER_TOKEN: ${TRIGGER_WORKER_TOKEN}
+      MANAGED_WORKER_SECRET: ${MANAGED_WORKER_SECRET}
+      TRIGGER_API_URL: ${TRIGGER_API_URL}
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT}
+      TRIGGER_WORKLOAD_API_DOMAIN: supervisor
+      TRIGGER_WORKLOAD_API_PORT_EXTERNAL: 8020
+      TRIGGER_WARM_START_URL: http://warm-start:8080
+      DOCKER_HOST: tcp://docker-proxy:2375
+      DOCKER_RUNNER_NETWORKS: trigger-supervisor
+      DOCKER_REGISTRY_URL: ${DOCKER_REGISTRY_URL:-}
+      DOCKER_REGISTRY_USERNAME: ${DOCKER_REGISTRY_USERNAME:-}
+      DOCKER_REGISTRY_PASSWORD: ${DOCKER_REGISTRY_PASSWORD:-}
+      DOCKER_AUTOREMOVE_EXITED_CONTAINERS: ${DOCKER_AUTOREMOVE_EXITED_CONTAINERS:-0}
+      ENFORCE_MACHINE_PRESETS: ${ENFORCE_MACHINE_PRESETS:-1}
+      TRIGGER_DEQUEUE_INTERVAL_MS: ${TRIGGER_DEQUEUE_INTERVAL_MS:-1000}
+    healthcheck:
+      test: ["CMD", "node", "-e", "http.get('http://localhost:8020/health', res => process.exit(res.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 10s
+
+  # Docker Proxy - secure access to Docker socket
+  docker-proxy:
+    image: tecnativa/docker-socket-proxy:${DOCKER_PROXY_IMAGE_TAG:-latest}
+    restart: ${RESTART_POLICY:-unless-stopped}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - trigger-docker-proxy
+    environment:
+      - LOG_LEVEL=info
+      - POST=1
+      - CONTAINERS=1
+      - IMAGES=1
+      - INFO=1
+      - NETWORKS=1
+    healthcheck:
+      test: ["CMD", "nc", "-z", "127.0.0.1", "2375"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+
+volumes:
+  shared:
+
+networks:
+  trigger-docker-proxy:
+  trigger-supervisor:
+    attachable: true

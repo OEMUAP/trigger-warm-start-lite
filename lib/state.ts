@@ -17,6 +17,8 @@ export interface MatchedRun {
   controllerId: string;
   workerInstanceName: string;
   deploymentKey: string;
+  machineCpu: string;
+  machineMemory: string;
   matchedAt: number;
   waitDurationMs: number;
 }
@@ -53,8 +55,13 @@ export const waitingRunners = global.__warmStartState.waitingRunners;
 export const recentMatches = global.__warmStartState.recentMatches;
 export const config = global.__warmStartState.config;
 
-export function warmStartKey(deploymentId: string, deploymentVersion: string): string {
-  return `${deploymentId}:${deploymentVersion}`;
+export function warmStartKey(
+  deploymentId: string,
+  deploymentVersion: string,
+  machineCpu: string,
+  machineMemory: string
+): string {
+  return `${deploymentId}:${deploymentVersion}:${machineCpu}:${machineMemory}`;
 }
 
 export function removeWaitingRunner(key: string, runner: WaitingRunner): void {

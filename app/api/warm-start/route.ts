@@ -12,7 +12,10 @@ const MAX_RECENT_MATCHES = 50;
 interface DequeuedMessage {
   deployment?: { friendlyId?: string };
   backgroundWorker?: { version?: string };
-  run?: { friendlyId?: string };
+  run?: {
+    friendlyId?: string;
+    machine?: { cpu?: number; memory?: number };
+  };
   [key: string]: unknown;
 }
 
@@ -29,7 +32,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "Missing required headers" }, { status: 400 });
   }
 
-  const key = warmStartKey(deploymentId, deploymentVersion);
+  const key = warmStartKey(deploymentId, deploymentVersion, machineCpu, machineMemory);
 
   // Create a stream that stays open until we get work or timeout
   const stream = new ReadableStream({
@@ -85,17 +88,21 @@ export async function POST(request: NextRequest) {
 
   const deploymentId = dequeuedMessage.deployment?.friendlyId;
   const deploymentVersion = dequeuedMessage.backgroundWorker?.version;
+  const machineCpu = String(dequeuedMessage.run?.machine?.cpu ?? "0");
+  const machineMemory = String(dequeuedMessage.run?.machine?.memory ?? "0");
 
   if (!deploymentId) {
     console.log(`[${new Date().toISOString()}] [warm-start] No deployment ID in message`);
     return NextResponse.json({ didWarmStart: false });
   }
 
-  const key = warmStartKey(deploymentId, deploymentVersion ?? "");
+  const key = warmStartKey(deploymentId, deploymentVersion ?? "", machineCpu, machineMemory);
   const runners = waitingRunners.get(key);
 
   if (!runners || runners.length === 0) {
-    console.log(`[${new Date().toISOString()}] [warm-start] No idle runners for key: ${key}`);
+    console.log(
+      `[${new Date().toISOString()}] [warm-start] No idle runners for key: ${key} (cpu: ${machineCpu}, mem: ${machineMemory})`
+    );
     return NextResponse.json({ didWarmStart: false });
   }
 
@@ -118,6 +125,8 @@ export async function POST(request: NextRequest) {
     controllerId: runner.controllerId,
     workerInstanceName: runner.workerInstanceName,
     deploymentKey: key,
+    machineCpu: runner.machineCpu,
+    machineMemory: runner.machineMemory,
     matchedAt: Date.now(),
     waitDurationMs,
   });

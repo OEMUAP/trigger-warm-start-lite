@@ -52,6 +52,8 @@ interface MatchedRun {
   controllerId: string;
   workerInstanceName: string;
   deploymentKey: string;
+  machineCpu: string;
+  machineMemory: string;
   matchedAt: number;
   waitDurationMs: number;
 }
@@ -79,6 +81,7 @@ export default function Dashboard() {
   const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
   const [expandedRunners, setExpandedRunners] = useState<Set<string>>(new Set());
+  const [expandedMatches, setExpandedMatches] = useState<Set<string>>(new Set());
 
   const toggleRunnerInfo = (runnerId: string) => {
     setExpandedRunners((prev) => {
@@ -92,8 +95,23 @@ export default function Dashboard() {
     });
   };
 
+  const toggleMatchInfo = (matchId: string) => {
+    setExpandedMatches((prev) => {
+      const next = new Set(prev);
+      if (next.has(matchId)) {
+        next.delete(matchId);
+      } else {
+        next.add(matchId);
+      }
+      return next;
+    });
+  };
+
   const getRunnerId = (runner: RunnerData, idx: number) =>
     `${runner.controllerId}-${runner.workerInstanceName}-${idx}`;
+
+  const getMatchId = (match: MatchedRun, idx: number) =>
+    `${match.runId}-${match.matchedAt}-${idx}`;
 
   useEffect(() => {
     const fetchData = async () => {
@@ -289,6 +307,7 @@ export default function Dashboard() {
               <table className="w-full">
                 <thead className="bg-background-tertiary">
                   <tr>
+                    <th className="text-left text-xs font-medium text-foreground-muted uppercase tracking-wide px-4 py-3 w-10">Info</th>
                     <th className="text-left text-xs font-medium text-foreground-muted uppercase tracking-wide px-4 py-3">Run ID</th>
                     <th className="text-left text-xs font-medium text-foreground-muted uppercase tracking-wide px-4 py-3">Controller</th>
                     <th className="text-left text-xs font-medium text-foreground-muted uppercase tracking-wide px-4 py-3">Instance</th>
@@ -298,16 +317,56 @@ export default function Dashboard() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border">
-                  {data.recentMatches.map((match, idx) => (
-                    <tr key={`${match.runId}-${idx}`} className="hover:bg-background-tertiary/50">
-                      <td className="px-4 py-3 font-mono text-sm text-foreground">{match.runId}</td>
-                      <td className="px-4 py-3 font-mono text-sm text-foreground-muted">{match.controllerId}</td>
-                      <td className="px-4 py-3 font-mono text-sm text-foreground-muted">{match.workerInstanceName}</td>
-                      <td className="px-4 py-3 font-mono text-sm text-foreground">{match.deploymentKey}</td>
-                      <td className="px-4 py-3 text-sm text-accent">{formatDuration(match.waitDurationMs)}</td>
-                      <td className="px-4 py-3 text-sm text-foreground-muted">{formatTime(match.matchedAt)}</td>
-                    </tr>
-                  ))}
+                  {data.recentMatches.map((match, idx) => {
+                    const matchId = getMatchId(match, idx);
+                    const isExpanded = expandedMatches.has(matchId);
+                    return (
+                      <Fragment key={matchId}>
+                        <tr className="hover:bg-background-tertiary/50">
+                          <td className="px-4 py-3">
+                            <button
+                              onClick={() => toggleMatchInfo(matchId)}
+                              className="p-1 rounded hover:bg-background-tertiary text-foreground-muted hover:text-accent transition-colors"
+                              title="View match details"
+                            >
+                              {isExpanded ? (
+                                <ChevronIcon expanded={isExpanded} className="w-5 h-5" />
+                              ) : (
+                                <InfoIcon className="w-5 h-5" />
+                              )}
+                            </button>
+                          </td>
+                          <td className="px-4 py-3 font-mono text-sm text-foreground">{match.runId}</td>
+                          <td className="px-4 py-3 font-mono text-sm text-foreground-muted">{match.controllerId}</td>
+                          <td className="px-4 py-3 font-mono text-sm text-foreground-muted">{match.workerInstanceName}</td>
+                          <td className="px-4 py-3 font-mono text-sm text-foreground">{match.deploymentKey}</td>
+                          <td className="px-4 py-3 text-sm text-accent">{formatDuration(match.waitDurationMs)}</td>
+                          <td className="px-4 py-3 text-sm text-foreground-muted">{formatTime(match.matchedAt)}</td>
+                        </tr>
+                        {isExpanded && (
+                          <tr className="bg-background-tertiary/30">
+                            <td colSpan={7} className="px-4 py-4">
+                              <div className="bg-background border border-border rounded-lg p-4 font-mono text-xs">
+                                <div className="text-foreground-muted mb-2 text-sm font-semibold">Match Log Info</div>
+                                <div className="space-y-1 text-foreground-muted">
+                                  <div><span className="text-accent">run_id:</span> {match.runId}</div>
+                                  <div><span className="text-accent">controller_id:</span> {match.controllerId}</div>
+                                  <div><span className="text-accent">worker_instance_name:</span> {match.workerInstanceName}</div>
+                                  <div><span className="text-accent">deployment_key:</span> {match.deploymentKey}</div>
+                                  <div><span className="text-accent">machine_cpu:</span> {match.machineCpu}</div>
+                                  <div><span className="text-accent">machine_memory:</span> {match.machineMemory} GB</div>
+                                  <div className="border-t border-border my-2 pt-2">
+                                    <div><span className="text-foreground">matched_at:</span> {new Date(match.matchedAt).toISOString()}</div>
+                                    <div><span className="text-foreground">wait_duration:</span> {match.waitDurationMs}ms ({formatDuration(match.waitDurationMs)})</div>
+                                  </div>
+                                </div>
+                              </div>
+                            </td>
+                          </tr>
+                        )}
+                      </Fragment>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>

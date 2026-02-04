@@ -18,10 +18,11 @@ services:
     networks:
       - trigger-supervisor
     healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8080/health"]
+      test: ["CMD-SHELL", "node -e \"http.get('http://' + process.env.HOSTNAME + ':8080/health', res => process.exit(res.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))\""]
       interval: 10s
       timeout: 5s
       retries: 3
+      start_period: 5s
 
   # Supervisor - orchestrates task execution and manages runners
   supervisor:
@@ -52,6 +53,7 @@ services:
       TRIGGER_WORKLOAD_API_PORT_EXTERNAL: 8020
       TRIGGER_WARM_START_URL: http://warm-start:8080
       DOCKER_HOST: tcp://docker-proxy:2375
+      DOCKER_API_VERSION: "1.44"
       DOCKER_RUNNER_NETWORKS: trigger-supervisor
       DOCKER_REGISTRY_URL: ${DOCKER_REGISTRY_URL:-}
       DOCKER_REGISTRY_USERNAME: ${DOCKER_REGISTRY_USERNAME:-}
@@ -93,5 +95,6 @@ volumes:
 
 networks:
   trigger-docker-proxy:
+    external: true
   trigger-supervisor:
-    attachable: true
+    external: true

@@ -47,6 +47,57 @@ function ChevronIcon({ expanded, className }: { expanded: boolean; className?: s
   );
 }
 
+function CheckIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 20 20"
+      fill="currentColor"
+      className={className || "w-5 h-5"}
+    >
+      <path
+        fillRule="evenodd"
+        d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.857-9.809a.75.75 0 00-1.214-.882l-3.483 4.79-1.88-1.88a.75.75 0 10-1.06 1.061l2.5 2.5a.75.75 0 001.137-.089l4-5.5z"
+        clipRule="evenodd"
+      />
+    </svg>
+  );
+}
+
+function XIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 20 20"
+      fill="currentColor"
+      className={className || "w-5 h-5"}
+    >
+      <path
+        fillRule="evenodd"
+        d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.28 7.22a.75.75 0 00-1.06 1.06L8.94 10l-1.72 1.72a.75.75 0 101.06 1.06L10 11.06l1.72 1.72a.75.75 0 101.06-1.06L11.06 10l1.72-1.72a.75.75 0 00-1.06-1.06L10 8.94 8.28 7.22z"
+        clipRule="evenodd"
+      />
+    </svg>
+  );
+}
+
+function TrashIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 20 20"
+      fill="currentColor"
+      className={className || "w-5 h-5"}
+    >
+      <path
+        fillRule="evenodd"
+        d="M8.75 1A2.75 2.75 0 006 3.75v.443c-.795.077-1.584.176-2.365.298a.75.75 0 10.23 1.482l.149-.022.841 10.518A2.75 2.75 0 007.596 19h4.807a2.75 2.75 0 002.742-2.53l.841-10.519.149.023a.75.75 0 00.23-1.482A41.03 41.03 0 0014 4.193V3.75A2.75 2.75 0 0011.25 1h-2.5zM10 4c.84 0 1.673.025 2.5.075V3.75c0-.69-.56-1.25-1.25-1.25h-2.5c-.69 0-1.25.56-1.25 1.25v.325C8.327 4.025 9.16 4 10 4zM8.58 7.72a.75.75 0 00-1.5.06l.3 7.5a.75.75 0 101.5-.06l-.3-7.5zm4.34.06a.75.75 0 10-1.5-.06l-.3 7.5a.75.75 0 101.5.06l.3-7.5z"
+        clipRule="evenodd"
+      />
+    </svg>
+  );
+}
+
 interface MatchedRun {
   runId: string;
   controllerId: string;
@@ -56,13 +107,24 @@ interface MatchedRun {
   machineMemory: string;
   matchedAt: number;
   waitDurationMs: number;
+  success: boolean;
+}
+
+interface Pagination {
+  page: number;
+  limit: number;
+  totalMatches: number;
+  totalPages: number;
+  hasNextPage: boolean;
+  hasPrevPage: boolean;
 }
 
 interface DashboardData {
   runners: RunnerData[];
   recentMatches: MatchedRun[];
+  pagination: Pagination;
   config: { connectionTimeoutMs: number; keepaliveMs: number; port: number; host: string };
-  stats: { totalRunners: number; totalDeployments: number; totalMatches: number };
+  stats: { totalRunners: number; totalDeployments: number; totalMatches: number; successfulMatches: number; failedMatches: number };
   timestamp: number;
 }
 
@@ -82,6 +144,8 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true);
   const [expandedRunners, setExpandedRunners] = useState<Set<string>>(new Set());
   const [expandedMatches, setExpandedMatches] = useState<Set<string>>(new Set());
+  const [page, setPage] = useState(1);
+  const [clearing, setClearing] = useState(false);
 
   const toggleRunnerInfo = (runnerId: string) => {
     setExpandedRunners((prev) => {
@@ -113,10 +177,23 @@ export default function Dashboard() {
   const getMatchId = (match: MatchedRun, idx: number) =>
     `${match.runId}-${match.matchedAt}-${idx}`;
 
+  const clearMatches = async () => {
+    if (!confirm("Are you sure you want to clear all recent matches?")) return;
+    setClearing(true);
+    try {
+      await fetch("/api/dashboard", { method: "DELETE" });
+      setPage(1);
+    } catch (err) {
+      console.error("Failed to clear matches:", err);
+    } finally {
+      setClearing(false);
+    }
+  };
+
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const res = await fetch("/api/dashboard");
+        const res = await fetch(`/api/dashboard?page=${page}&limit=100`);
         const json = await res.json();
         setData(json);
       } catch (err) {
@@ -129,7 +206,7 @@ export default function Dashboard() {
     fetchData();
     const interval = setInterval(fetchData, 2000);
     return () => clearInterval(interval);
-  }, []);
+  }, [page]);
 
   if (loading || !data) {
     return (
@@ -186,7 +263,7 @@ export default function Dashboard() {
         </div>
 
         {/* Stats Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
           <div className="bg-background-secondary border border-border rounded-lg p-4">
             <div className="text-foreground-muted text-xs uppercase tracking-wide">Idle Runners</div>
             <div className="text-3xl font-bold text-foreground mt-1">{data.stats.totalRunners}</div>
@@ -196,8 +273,16 @@ export default function Dashboard() {
             <div className="text-3xl font-bold text-foreground mt-1">{data.stats.totalDeployments}</div>
           </div>
           <div className="bg-background-secondary border border-border rounded-lg p-4">
-            <div className="text-foreground-muted text-xs uppercase tracking-wide">Recent Matches</div>
+            <div className="text-foreground-muted text-xs uppercase tracking-wide">Total Matches</div>
             <div className="text-3xl font-bold text-foreground mt-1">{data.stats.totalMatches}</div>
+          </div>
+          <div className="bg-background-secondary border border-border rounded-lg p-4">
+            <div className="text-foreground-muted text-xs uppercase tracking-wide">Warm Starts</div>
+            <div className="text-3xl font-bold text-green-500 mt-1">{data.stats.successfulMatches}</div>
+          </div>
+          <div className="bg-background-secondary border border-border rounded-lg p-4">
+            <div className="text-foreground-muted text-xs uppercase tracking-wide">Cold Starts</div>
+            <div className="text-3xl font-bold text-red-500 mt-1">{data.stats.failedMatches}</div>
           </div>
         </div>
 
@@ -293,9 +378,19 @@ export default function Dashboard() {
 
         {/* Recent Matches Table */}
         <div className="bg-background-secondary border border-border rounded-lg overflow-hidden">
-          <div className="p-4 border-b border-border">
-            <h2 className="text-lg font-semibold text-foreground">Recent Matches</h2>
-            <p className="text-foreground-muted text-sm">Successfully matched runs to idle runners</p>
+          <div className="p-4 border-b border-border flex items-center justify-between">
+            <div>
+              <h2 className="text-lg font-semibold text-foreground">Recent Matches</h2>
+              <p className="text-foreground-muted text-sm">Warm starts and cold starts (no idle runner)</p>
+            </div>
+            <button
+              onClick={clearMatches}
+              disabled={clearing || data.recentMatches.length === 0}
+              className="flex items-center gap-2 px-3 py-2 text-sm bg-red-500/10 text-red-500 rounded-lg hover:bg-red-500/20 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            >
+              <TrashIcon className="w-4 h-4" />
+              {clearing ? "Clearing..." : "Clear All"}
+            </button>
           </div>
           {data.recentMatches.length === 0 ? (
             <div className="p-8 text-center text-foreground-muted">
@@ -307,13 +402,14 @@ export default function Dashboard() {
               <table className="w-full">
                 <thead className="bg-background-tertiary">
                   <tr>
+                    <th className="text-left text-xs font-medium text-foreground-muted uppercase tracking-wide px-4 py-3 w-10">Status</th>
                     <th className="text-left text-xs font-medium text-foreground-muted uppercase tracking-wide px-4 py-3 w-10">Info</th>
                     <th className="text-left text-xs font-medium text-foreground-muted uppercase tracking-wide px-4 py-3">Run ID</th>
                     <th className="text-left text-xs font-medium text-foreground-muted uppercase tracking-wide px-4 py-3">Controller</th>
                     <th className="text-left text-xs font-medium text-foreground-muted uppercase tracking-wide px-4 py-3">Instance</th>
                     <th className="text-left text-xs font-medium text-foreground-muted uppercase tracking-wide px-4 py-3">Deployment</th>
                     <th className="text-left text-xs font-medium text-foreground-muted uppercase tracking-wide px-4 py-3">Wait Time</th>
-                    <th className="text-left text-xs font-medium text-foreground-muted uppercase tracking-wide px-4 py-3">Matched At</th>
+                    <th className="text-left text-xs font-medium text-foreground-muted uppercase tracking-wide px-4 py-3">Time</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border">
@@ -322,7 +418,14 @@ export default function Dashboard() {
                     const isExpanded = expandedMatches.has(matchId);
                     return (
                       <Fragment key={matchId}>
-                        <tr className="hover:bg-background-tertiary/50">
+                        <tr className={`hover:bg-background-tertiary/50 ${!match.success ? "bg-red-500/5" : ""}`}>
+                          <td className="px-4 py-3">
+                            {match.success ? (
+                              <CheckIcon className="w-5 h-5 text-green-500" />
+                            ) : (
+                              <XIcon className="w-5 h-5 text-red-500" />
+                            )}
+                          </td>
                           <td className="px-4 py-3">
                             <button
                               onClick={() => toggleMatchInfo(matchId)}
@@ -337,27 +440,36 @@ export default function Dashboard() {
                             </button>
                           </td>
                           <td className="px-4 py-3 font-mono text-sm text-foreground">{match.runId}</td>
-                          <td className="px-4 py-3 font-mono text-sm text-foreground-muted">{match.controllerId}</td>
-                          <td className="px-4 py-3 font-mono text-sm text-foreground-muted">{match.workerInstanceName}</td>
+                          <td className="px-4 py-3 font-mono text-sm text-foreground-muted">{match.controllerId || "-"}</td>
+                          <td className="px-4 py-3 font-mono text-sm text-foreground-muted">{match.workerInstanceName || "-"}</td>
                           <td className="px-4 py-3 font-mono text-sm text-foreground">{match.deploymentKey}</td>
-                          <td className="px-4 py-3 text-sm text-accent">{formatDuration(match.waitDurationMs)}</td>
+                          <td className="px-4 py-3 text-sm text-accent">{match.success ? formatDuration(match.waitDurationMs) : "-"}</td>
                           <td className="px-4 py-3 text-sm text-foreground-muted">{formatTime(match.matchedAt)}</td>
                         </tr>
                         {isExpanded && (
                           <tr className="bg-background-tertiary/30">
-                            <td colSpan={7} className="px-4 py-4">
+                            <td colSpan={8} className="px-4 py-4">
                               <div className="bg-background border border-border rounded-lg p-4 font-mono text-xs">
-                                <div className="text-foreground-muted mb-2 text-sm font-semibold">Match Log Info</div>
+                                <div className="text-foreground-muted mb-2 text-sm font-semibold">
+                                  {match.success ? "Warm Start Details" : "Cold Start Details (No Idle Runner)"}
+                                </div>
                                 <div className="space-y-1 text-foreground-muted">
                                   <div><span className="text-accent">run_id:</span> {match.runId}</div>
-                                  <div><span className="text-accent">controller_id:</span> {match.controllerId}</div>
-                                  <div><span className="text-accent">worker_instance_name:</span> {match.workerInstanceName}</div>
+                                  <div><span className="text-accent">status:</span> <span className={match.success ? "text-green-500" : "text-red-500"}>{match.success ? "WARM START" : "COLD START"}</span></div>
+                                  {match.success && (
+                                    <>
+                                      <div><span className="text-accent">controller_id:</span> {match.controllerId}</div>
+                                      <div><span className="text-accent">worker_instance_name:</span> {match.workerInstanceName}</div>
+                                    </>
+                                  )}
                                   <div><span className="text-accent">deployment_key:</span> {match.deploymentKey}</div>
                                   <div><span className="text-accent">machine_cpu:</span> {match.machineCpu}</div>
                                   <div><span className="text-accent">machine_memory:</span> {match.machineMemory} GB</div>
                                   <div className="border-t border-border my-2 pt-2">
-                                    <div><span className="text-foreground">matched_at:</span> {new Date(match.matchedAt).toISOString()}</div>
-                                    <div><span className="text-foreground">wait_duration:</span> {match.waitDurationMs}ms ({formatDuration(match.waitDurationMs)})</div>
+                                    <div><span className="text-foreground">timestamp:</span> {new Date(match.matchedAt).toISOString()}</div>
+                                    {match.success && (
+                                      <div><span className="text-foreground">wait_duration:</span> {match.waitDurationMs}ms ({formatDuration(match.waitDurationMs)})</div>
+                                    )}
                                   </div>
                                 </div>
                               </div>
@@ -369,6 +481,47 @@ export default function Dashboard() {
                   })}
                 </tbody>
               </table>
+            </div>
+          )}
+          {/* Pagination Controls */}
+          {data.pagination.totalPages > 1 && (
+            <div className="p-4 border-t border-border flex items-center justify-between">
+              <div className="text-sm text-foreground-muted">
+                Showing {((data.pagination.page - 1) * data.pagination.limit) + 1} - {Math.min(data.pagination.page * data.pagination.limit, data.pagination.totalMatches)} of {data.pagination.totalMatches} matches
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setPage(1)}
+                  disabled={!data.pagination.hasPrevPage}
+                  className="px-3 py-1 text-sm bg-background-tertiary rounded hover:bg-background disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                >
+                  First
+                </button>
+                <button
+                  onClick={() => setPage(p => Math.max(1, p - 1))}
+                  disabled={!data.pagination.hasPrevPage}
+                  className="px-3 py-1 text-sm bg-background-tertiary rounded hover:bg-background disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                >
+                  Prev
+                </button>
+                <span className="px-3 py-1 text-sm text-foreground">
+                  Page {data.pagination.page} of {data.pagination.totalPages}
+                </span>
+                <button
+                  onClick={() => setPage(p => p + 1)}
+                  disabled={!data.pagination.hasNextPage}
+                  className="px-3 py-1 text-sm bg-background-tertiary rounded hover:bg-background disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                >
+                  Next
+                </button>
+                <button
+                  onClick={() => setPage(data.pagination.totalPages)}
+                  disabled={!data.pagination.hasNextPage}
+                  className="px-3 py-1 text-sm bg-background-tertiary rounded hover:bg-background disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                >
+                  Last
+                </button>
+              </div>
             </div>
           )}
         </div>

@@ -7,7 +7,7 @@ import {
   type WaitingRunner,
 } from "@/lib/state";
 
-const MAX_RECENT_MATCHES = 50;
+const MAX_RECENT_MATCHES = 1000;
 
 interface DequeuedMessage {
   deployment?: { friendlyId?: string };
@@ -100,9 +100,25 @@ export async function POST(request: NextRequest) {
   const runners = waitingRunners.get(key);
 
   if (!runners || runners.length === 0) {
+    const runId = dequeuedMessage.run?.friendlyId ?? "unknown";
     console.log(
       `[${new Date().toISOString()}] [warm-start] No idle runners for key: ${key} (cpu: ${machineCpu}, mem: ${machineMemory})`
     );
+    // Track failed match
+    recentMatches.unshift({
+      runId,
+      controllerId: "",
+      workerInstanceName: "",
+      deploymentKey: key,
+      machineCpu,
+      machineMemory,
+      matchedAt: Date.now(),
+      waitDurationMs: 0,
+      success: false,
+    });
+    if (recentMatches.length > MAX_RECENT_MATCHES) {
+      recentMatches.pop();
+    }
     return NextResponse.json({ didWarmStart: false });
   }
 
@@ -129,6 +145,7 @@ export async function POST(request: NextRequest) {
     machineMemory: runner.machineMemory,
     matchedAt: Date.now(),
     waitDurationMs,
+    success: true,
   });
   if (recentMatches.length > MAX_RECENT_MATCHES) {
     recentMatches.pop();

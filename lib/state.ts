@@ -21,6 +21,7 @@ export interface MatchedRun {
   machineMemory: string;
   matchedAt: number;
   waitDurationMs: number;
+  success: boolean;
 }
 
 export interface Config {
@@ -77,9 +78,17 @@ export function getStats() {
   for (const runners of waitingRunners.values()) {
     totalRunners += runners.length;
   }
+  const successfulMatches = recentMatches.filter(m => m.success).length;
+  const failedMatches = recentMatches.filter(m => !m.success).length;
   return {
     totalRunners,
     totalDeployments: waitingRunners.size,
     totalMatches: recentMatches.length,
+    successfulMatches,
+    failedMatches,
   };
+}
+
+export function clearRecentMatches(): void {
+  recentMatches.length = 0;
 }

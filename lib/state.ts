@@ -24,6 +24,17 @@ export interface MatchedRun {
   success: boolean;
 }
 
+export interface ExecutingRunner {
+  controllerId: string;
+  workerInstanceName: string;
+  deploymentId: string;
+  deploymentVersion: string;
+  machineCpu: string;
+  machineMemory: string;
+  runId: string;
+  matchedAt: number;
+}
+
 export interface Config {
   connectionTimeoutMs: number;
   keepaliveMs: number;
@@ -39,6 +50,7 @@ interface MatchCounters {
 declare global {
   var __warmStartState: {
     waitingRunners: Map<string, WaitingRunner[]>;
+    executingRunners: Map<string, ExecutingRunner>;
     recentMatches: MatchedRun[];
     counters: MatchCounters;
     config: Config;
@@ -48,6 +60,7 @@ declare global {
 if (!global.__warmStartState) {
   global.__warmStartState = {
     waitingRunners: new Map(),
+    executingRunners: new Map(),
     recentMatches: [],
     counters: {
       warmStarts: 0,
@@ -63,6 +76,7 @@ if (!global.__warmStartState) {
 }
 
 export const waitingRunners = global.__warmStartState.waitingRunners;
+export const executingRunners = global.__warmStartState.executingRunners;
 export const recentMatches = global.__warmStartState.recentMatches;
 export const counters = global.__warmStartState.counters;
 export const config = global.__warmStartState.config;
@@ -84,13 +98,22 @@ export function removeWaitingRunner(key: string, runner: WaitingRunner): void {
   if (runners.length === 0) waitingRunners.delete(key);
 }
 
+export function addExecutingRunner(runner: ExecutingRunner): void {
+  executingRunners.set(runner.controllerId, runner);
+}
+
+export function removeExecutingRunner(controllerId: string): void {
+  executingRunners.delete(controllerId);
+}
+
 export function getStats() {
-  let totalRunners = 0;
+  let totalWaitingRunners = 0;
   for (const runners of waitingRunners.values()) {
-    totalRunners += runners.length;
+    totalWaitingRunners += runners.length;
   }
   return {
-    totalRunners,
+    totalRunners: totalWaitingRunners,
+    totalExecutingRunners: executingRunners.size,
     totalDeployments: waitingRunners.size,
     recentMatchesCount: recentMatches.length,
     warmStarts: counters.warmStarts,

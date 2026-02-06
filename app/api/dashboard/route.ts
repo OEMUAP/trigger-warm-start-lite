@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { waitingRunners, recentMatches, config, getStats, clearRecentMatches } from "@/lib/state";
+import { waitingRunners, executingRunners, recentMatches, config, getStats, clearRecentMatches } from "@/lib/state";
 
 export const dynamic = "force-dynamic";
 
@@ -29,6 +29,25 @@ export async function GET(request: NextRequest) {
   // Sort by waiting duration (longest first)
   runners.sort((a, b) => b.waitingDurationMs - a.waitingDurationMs);
 
+  // Build executing runners list
+  const executing = [];
+  for (const runner of executingRunners.values()) {
+    executing.push({
+      controllerId: runner.controllerId,
+      workerInstanceName: runner.workerInstanceName,
+      deploymentId: runner.deploymentId,
+      deploymentVersion: runner.deploymentVersion,
+      machineCpu: runner.machineCpu,
+      machineMemory: runner.machineMemory,
+      runId: runner.runId,
+      matchedAt: runner.matchedAt,
+      executingDurationMs: now - runner.matchedAt,
+    });
+  }
+
+  // Sort by executing duration (longest first)
+  executing.sort((a, b) => b.executingDurationMs - a.executingDurationMs);
+
   // Paginate recent matches
   const totalMatches = recentMatches.length;
   const totalPages = Math.ceil(totalMatches / limit);
@@ -37,6 +56,7 @@ export async function GET(request: NextRequest) {
 
   return NextResponse.json({
     runners,
+    executingRunners: executing,
     recentMatches: paginatedMatches,
     pagination: {
       page,

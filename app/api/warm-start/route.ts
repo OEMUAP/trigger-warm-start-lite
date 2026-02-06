@@ -3,6 +3,8 @@ import {
   waitingRunners,
   warmStartKey,
   removeWaitingRunner,
+  removeExecutingRunner,
+  addExecutingRunner,
   recordMatch,
   type WaitingRunner,
 } from "@/lib/state";
@@ -48,6 +50,10 @@ export async function GET(request: NextRequest) {
     debugLog("GET /warm-start - Missing required headers");
     return NextResponse.json({ error: "Missing required headers" }, { status: 400 });
   }
+
+  // Runner is reconnecting after executing a task - remove from executing list
+  removeExecutingRunner(controllerId);
+  debugLog("GET /warm-start - Runner reconnecting", { controllerId });
 
   const key = warmStartKey(deploymentId, deploymentVersion, machineCpu, machineMemory);
 
@@ -192,6 +198,19 @@ export async function POST(request: NextRequest) {
     const encoder = new TextEncoder();
     runner.controller.enqueue(encoder.encode(JSON.stringify(dequeuedMessage)));
     runner.controller.close();
+
+    // Track this runner as executing
+    addExecutingRunner({
+      controllerId: runner.controllerId,
+      workerInstanceName: runner.workerInstanceName,
+      deploymentId: runner.deploymentId,
+      deploymentVersion: runner.deploymentVersion,
+      machineCpu: runner.machineCpu,
+      machineMemory: runner.machineMemory,
+      runId,
+      matchedAt: Date.now(),
+    });
+
     return NextResponse.json({ didWarmStart: true });
   } catch (error) {
     console.error(`[${new Date().toISOString()}] [warm-start] Failed to send message to runner:`, error);

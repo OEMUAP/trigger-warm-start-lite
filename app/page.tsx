@@ -13,6 +13,18 @@ interface RunnerData {
   waitingDurationMs: number;
 }
 
+interface ExecutingRunnerData {
+  controllerId: string;
+  workerInstanceName: string;
+  deploymentId: string;
+  deploymentVersion: string;
+  machineCpu: string;
+  machineMemory: string;
+  runId: string;
+  matchedAt: number;
+  executingDurationMs: number;
+}
+
 function InfoIcon({ className }: { className?: string }) {
   return (
     <svg
@@ -121,10 +133,11 @@ interface Pagination {
 
 interface DashboardData {
   runners: RunnerData[];
+  executingRunners: ExecutingRunnerData[];
   recentMatches: MatchedRun[];
   pagination: Pagination;
   config: { connectionTimeoutMs: number; keepaliveMs: number; port: number; host: string };
-  stats: { totalRunners: number; totalDeployments: number; totalMatches: number; warmStarts: number; coldStarts: number };
+  stats: { totalRunners: number; totalExecutingRunners: number; totalDeployments: number; totalMatches: number; warmStarts: number; coldStarts: number };
   timestamp: number;
 }
 
@@ -143,9 +156,11 @@ export default function Dashboard() {
   const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
   const [expandedRunners, setExpandedRunners] = useState<Set<string>>(new Set());
+  const [expandedExecuting, setExpandedExecuting] = useState<Set<string>>(new Set());
   const [expandedMatches, setExpandedMatches] = useState<Set<string>>(new Set());
   const [page, setPage] = useState(1);
   const [clearing, setClearing] = useState(false);
+  const [showClearModal, setShowClearModal] = useState(false);
 
   const toggleRunnerInfo = (runnerId: string) => {
     setExpandedRunners((prev) => {
@@ -171,6 +186,21 @@ export default function Dashboard() {
     });
   };
 
+  const toggleExecutingInfo = (runnerId: string) => {
+    setExpandedExecuting((prev) => {
+      const next = new Set(prev);
+      if (next.has(runnerId)) {
+        next.delete(runnerId);
+      } else {
+        next.add(runnerId);
+      }
+      return next;
+    });
+  };
+
+  const getExecutingId = (runner: ExecutingRunnerData, idx: number) =>
+    `${runner.controllerId}-${runner.runId}-${idx}`;
+
   const getRunnerId = (runner: RunnerData, idx: number) =>
     `${runner.controllerId}-${runner.workerInstanceName}-${idx}`;
 
@@ -178,7 +208,6 @@ export default function Dashboard() {
     `${match.runId}-${match.matchedAt}-${idx}`;
 
   const clearMatches = async () => {
-    if (!confirm("Are you sure you want to clear all recent matches?")) return;
     setClearing(true);
     try {
       await fetch("/api/dashboard", { method: "DELETE" });
@@ -187,6 +216,7 @@ export default function Dashboard() {
       console.error("Failed to clear matches:", err);
     } finally {
       setClearing(false);
+      setShowClearModal(false);
     }
   };
 
@@ -263,10 +293,14 @@ export default function Dashboard() {
         </div>
 
         {/* Stats Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+        <div className="grid grid-cols-2 md:grid-cols-6 gap-4">
           <div className="bg-background-secondary border border-border rounded-lg p-4">
-            <div className="text-foreground-muted text-xs uppercase tracking-wide">Idle Runners</div>
-            <div className="text-3xl font-bold text-foreground mt-1">{data.stats.totalRunners}</div>
+            <div className="text-foreground-muted text-xs uppercase tracking-wide">Waiting</div>
+            <div className="text-3xl font-bold text-yellow-500 mt-1">{data.stats.totalRunners}</div>
+          </div>
+          <div className="bg-background-secondary border border-border rounded-lg p-4">
+            <div className="text-foreground-muted text-xs uppercase tracking-wide">Executing</div>
+            <div className="text-3xl font-bold text-blue-500 mt-1">{data.stats.totalExecutingRunners}</div>
           </div>
           <div className="bg-background-secondary border border-border rounded-lg p-4">
             <div className="text-foreground-muted text-xs uppercase tracking-wide">Deployments</div>
@@ -286,16 +320,16 @@ export default function Dashboard() {
           </div>
         </div>
 
-        {/* Waiting Runners Table */}
+        {/* Active Runners Table */}
         <div className="bg-background-secondary border border-border rounded-lg overflow-hidden">
           <div className="p-4 border-b border-border">
-            <h2 className="text-lg font-semibold text-foreground">Idle Runners</h2>
-            <p className="text-foreground-muted text-sm">Runners waiting for work via long-poll</p>
+            <h2 className="text-lg font-semibold text-foreground">Active Runners</h2>
+            <p className="text-foreground-muted text-sm">Runners currently waiting or executing tasks</p>
           </div>
-          {data.runners.length === 0 ? (
+          {data.runners.length === 0 && data.executingRunners.length === 0 ? (
             <div className="p-8 text-center text-foreground-muted">
               <div className="text-4xl mb-2">🏃</div>
-              <div>No idle runners currently waiting</div>
+              <div>No active runners</div>
             </div>
           ) : (
             <div className="overflow-x-auto">
@@ -303,21 +337,81 @@ export default function Dashboard() {
                 <thead className="bg-background-tertiary">
                   <tr>
                     <th className="text-left text-xs font-medium text-foreground-muted uppercase tracking-wide px-4 py-3 w-10">Info</th>
+                    <th className="text-left text-xs font-medium text-foreground-muted uppercase tracking-wide px-4 py-3">Status</th>
                     <th className="text-left text-xs font-medium text-foreground-muted uppercase tracking-wide px-4 py-3">Controller ID</th>
                     <th className="text-left text-xs font-medium text-foreground-muted uppercase tracking-wide px-4 py-3">Instance</th>
                     <th className="text-left text-xs font-medium text-foreground-muted uppercase tracking-wide px-4 py-3">Deployment</th>
-                    <th className="text-left text-xs font-medium text-foreground-muted uppercase tracking-wide px-4 py-3">Version</th>
+                    <th className="text-left text-xs font-medium text-foreground-muted uppercase tracking-wide px-4 py-3">Run ID</th>
                     <th className="text-left text-xs font-medium text-foreground-muted uppercase tracking-wide px-4 py-3">Machine</th>
-                    <th className="text-left text-xs font-medium text-foreground-muted uppercase tracking-wide px-4 py-3">Waiting</th>
-                    <th className="text-left text-xs font-medium text-foreground-muted uppercase tracking-wide px-4 py-3">Connected</th>
+                    <th className="text-left text-xs font-medium text-foreground-muted uppercase tracking-wide px-4 py-3">Duration</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border">
+                  {/* Executing Runners */}
+                  {data.executingRunners.map((runner, idx) => {
+                    const runnerId = getExecutingId(runner, idx);
+                    const isExpanded = expandedExecuting.has(runnerId);
+                    return (
+                      <Fragment key={`exec-${runnerId}`}>
+                        <tr className="hover:bg-background-tertiary/50 bg-blue-500/5">
+                          <td className="px-4 py-3">
+                            <button
+                              onClick={() => toggleExecutingInfo(runnerId)}
+                              className="p-1 rounded hover:bg-background-tertiary text-foreground-muted hover:text-accent transition-colors"
+                              title="View runner details"
+                            >
+                              {isExpanded ? (
+                                <ChevronIcon expanded={isExpanded} className="w-5 h-5" />
+                              ) : (
+                                <InfoIcon className="w-5 h-5" />
+                              )}
+                            </button>
+                          </td>
+                          <td className="px-4 py-3">
+                            <span className="inline-flex items-center gap-1.5 px-2 py-1 rounded-full text-xs font-medium bg-blue-500/20 text-blue-400">
+                              <span className="w-1.5 h-1.5 bg-blue-400 rounded-full animate-pulse"></span>
+                              Executing
+                            </span>
+                          </td>
+                          <td className="px-4 py-3 font-mono text-sm text-foreground">{runner.controllerId}</td>
+                          <td className="px-4 py-3 font-mono text-sm text-foreground-muted">{runner.workerInstanceName}</td>
+                          <td className="px-4 py-3 font-mono text-sm text-foreground">{runner.deploymentId}:{runner.deploymentVersion}</td>
+                          <td className="px-4 py-3 font-mono text-sm text-accent">{runner.runId}</td>
+                          <td className="px-4 py-3 text-sm text-foreground-muted">{runner.machineCpu} CPU / {runner.machineMemory} GB</td>
+                          <td className="px-4 py-3 text-sm text-blue-400">{formatDuration(runner.executingDurationMs)}</td>
+                        </tr>
+                        {isExpanded && (
+                          <tr className="bg-background-tertiary/30">
+                            <td colSpan={8} className="px-4 py-4">
+                              <div className="bg-background border border-border rounded-lg p-4 font-mono text-xs">
+                                <div className="text-foreground-muted mb-2 text-sm font-semibold">Executing Runner Details</div>
+                                <div className="space-y-1 text-foreground-muted">
+                                  <div><span className="text-accent">controller_id:</span> {runner.controllerId}</div>
+                                  <div><span className="text-accent">worker_instance_name:</span> {runner.workerInstanceName}</div>
+                                  <div><span className="text-accent">deployment_id:</span> {runner.deploymentId}</div>
+                                  <div><span className="text-accent">deployment_version:</span> {runner.deploymentVersion}</div>
+                                  <div><span className="text-accent">run_id:</span> {runner.runId}</div>
+                                  <div><span className="text-accent">machine_cpu:</span> {runner.machineCpu}</div>
+                                  <div><span className="text-accent">machine_memory:</span> {runner.machineMemory} GB</div>
+                                  <div className="border-t border-border my-2 pt-2">
+                                    <div><span className="text-foreground">matched_at:</span> {new Date(runner.matchedAt).toISOString()}</div>
+                                    <div><span className="text-foreground">executing_duration:</span> {runner.executingDurationMs}ms ({formatDuration(runner.executingDurationMs)})</div>
+                                    <div><span className="text-foreground">status:</span> <span className="text-blue-400">EXECUTING</span></div>
+                                  </div>
+                                </div>
+                              </div>
+                            </td>
+                          </tr>
+                        )}
+                      </Fragment>
+                    );
+                  })}
+                  {/* Waiting Runners */}
                   {data.runners.map((runner, idx) => {
                     const runnerId = getRunnerId(runner, idx);
                     const isExpanded = expandedRunners.has(runnerId);
                     return (
-                      <Fragment key={runnerId}>
+                      <Fragment key={`wait-${runnerId}`}>
                         <tr className="hover:bg-background-tertiary/50">
                           <td className="px-4 py-3">
                             <button
@@ -332,23 +426,28 @@ export default function Dashboard() {
                               )}
                             </button>
                           </td>
+                          <td className="px-4 py-3">
+                            <span className="inline-flex items-center gap-1.5 px-2 py-1 rounded-full text-xs font-medium bg-yellow-500/20 text-yellow-400">
+                              <span className="w-1.5 h-1.5 bg-yellow-400 rounded-full"></span>
+                              Waiting
+                            </span>
+                          </td>
                           <td className="px-4 py-3 font-mono text-sm text-foreground">{runner.controllerId}</td>
                           <td className="px-4 py-3 font-mono text-sm text-foreground-muted">{runner.workerInstanceName}</td>
-                          <td className="px-4 py-3 font-mono text-sm text-foreground">{runner.deploymentId}</td>
-                          <td className="px-4 py-3 font-mono text-sm text-foreground-muted">{runner.deploymentVersion}</td>
+                          <td className="px-4 py-3 font-mono text-sm text-foreground">{runner.deploymentId}:{runner.deploymentVersion}</td>
+                          <td className="px-4 py-3 font-mono text-sm text-foreground-muted">-</td>
                           <td className="px-4 py-3 text-sm text-foreground-muted">{runner.machineCpu} CPU / {runner.machineMemory} GB</td>
                           <td className="px-4 py-3 text-sm">
-                            <span className={runner.waitingDurationMs > 60000 ? "text-yellow-500" : "text-accent"}>
+                            <span className={runner.waitingDurationMs > 60000 ? "text-yellow-500" : "text-yellow-400"}>
                               {formatDuration(runner.waitingDurationMs)}
                             </span>
                           </td>
-                          <td className="px-4 py-3 text-sm text-foreground-muted">{formatTime(runner.connectedAt)}</td>
                         </tr>
                         {isExpanded && (
                           <tr className="bg-background-tertiary/30">
                             <td colSpan={8} className="px-4 py-4">
                               <div className="bg-background border border-border rounded-lg p-4 font-mono text-xs">
-                                <div className="text-foreground-muted mb-2 text-sm font-semibold">Runner Log Info</div>
+                                <div className="text-foreground-muted mb-2 text-sm font-semibold">Waiting Runner Details</div>
                                 <div className="space-y-1 text-foreground-muted">
                                   <div><span className="text-accent">x-trigger-workload-controller-id:</span> {runner.controllerId}</div>
                                   <div><span className="text-accent">x-trigger-deployment-id:</span> {runner.deploymentId}</div>
@@ -360,7 +459,7 @@ export default function Dashboard() {
                                     <div><span className="text-foreground">deployment_key:</span> {runner.deploymentId}:{runner.deploymentVersion}</div>
                                     <div><span className="text-foreground">connected_at:</span> {new Date(runner.connectedAt).toISOString()}</div>
                                     <div><span className="text-foreground">waiting_duration:</span> {runner.waitingDurationMs}ms ({formatDuration(runner.waitingDurationMs)})</div>
-                                    <div><span className="text-foreground">status:</span> <span className="text-accent">IDLE (long-polling)</span></div>
+                                    <div><span className="text-foreground">status:</span> <span className="text-yellow-400">WAITING (long-polling)</span></div>
                                   </div>
                                 </div>
                               </div>
@@ -383,14 +482,52 @@ export default function Dashboard() {
               <h2 className="text-lg font-semibold text-foreground">Recent Matches</h2>
               <p className="text-foreground-muted text-sm">Warm starts and cold starts (no idle runner)</p>
             </div>
-            <button
-              onClick={clearMatches}
-              disabled={clearing || data.recentMatches.length === 0}
-              className="flex items-center gap-2 px-3 py-2 text-sm bg-red-500/10 text-red-500 rounded-lg hover:bg-red-500/20 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-            >
-              <TrashIcon className="w-4 h-4" />
-              {clearing ? "Clearing..." : "Clear All"}
-            </button>
+            <div className="flex items-center gap-3">
+              {/* Pagination in header */}
+              {data.pagination.totalPages > 1 && (
+                <div className="flex items-center gap-0.5">
+                  <button
+                    onClick={() => setPage(1)}
+                    disabled={!data.pagination.hasPrevPage}
+                    className="px-2.5 py-1 text-xs font-medium bg-background-tertiary text-foreground-muted rounded-l border border-border hover:bg-background hover:text-foreground disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                  >
+                    First
+                  </button>
+                  <button
+                    onClick={() => setPage(p => Math.max(1, p - 1))}
+                    disabled={!data.pagination.hasPrevPage}
+                    className="px-2.5 py-1 text-xs font-medium bg-background-tertiary text-foreground-muted border-y border-border hover:bg-background hover:text-foreground disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                  >
+                    Prev
+                  </button>
+                  <span className="px-3 py-1 text-xs font-semibold bg-background text-foreground border border-border">
+                    {data.pagination.page} / {data.pagination.totalPages}
+                  </span>
+                  <button
+                    onClick={() => setPage(p => p + 1)}
+                    disabled={!data.pagination.hasNextPage}
+                    className="px-2.5 py-1 text-xs font-medium bg-background-tertiary text-foreground-muted border-y border-border hover:bg-background hover:text-foreground disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                  >
+                    Next
+                  </button>
+                  <button
+                    onClick={() => setPage(data.pagination.totalPages)}
+                    disabled={!data.pagination.hasNextPage}
+                    className="px-2.5 py-1 text-xs font-medium bg-background-tertiary text-foreground-muted rounded-r border border-border hover:bg-background hover:text-foreground disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                  >
+                    Last
+                  </button>
+                </div>
+              )}
+              <button
+                onClick={() => setShowClearModal(true)}
+                disabled={clearing || data.recentMatches.length === 0}
+                className="flex items-center gap-2 px-3 py-1.5 text-sm font-medium bg-red-500/10 text-red-500 rounded-lg border border-red-500/20 hover:bg-red-500/20 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              >
+                <TrashIcon className="w-4 h-4" />
+                {clearing ? "Clearing..." : "Clear All"}
+              </button>
+            </div>
           </div>
           {data.recentMatches.length === 0 ? (
             <div className="p-8 text-center text-foreground-muted">
@@ -483,45 +620,47 @@ export default function Dashboard() {
               </table>
             </div>
           )}
-          {/* Pagination Controls */}
-          {data.pagination.totalPages > 1 && (
+          {/* Footer with pagination */}
+          {data.pagination.totalMatches > 0 && (
             <div className="p-4 border-t border-border flex items-center justify-between">
               <div className="text-sm text-foreground-muted">
-                Showing {((data.pagination.page - 1) * data.pagination.limit) + 1} - {Math.min(data.pagination.page * data.pagination.limit, data.pagination.totalMatches)} of {data.pagination.totalMatches} matches
+                Showing <span className="font-medium text-foreground">{((data.pagination.page - 1) * data.pagination.limit) + 1}</span> - <span className="font-medium text-foreground">{Math.min(data.pagination.page * data.pagination.limit, data.pagination.totalMatches)}</span> of <span className="font-medium text-foreground">{data.pagination.totalMatches.toLocaleString()}</span> matches
               </div>
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => setPage(1)}
-                  disabled={!data.pagination.hasPrevPage}
-                  className="px-3 py-1 text-sm bg-background-tertiary rounded hover:bg-background disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                >
-                  First
-                </button>
-                <button
-                  onClick={() => setPage(p => Math.max(1, p - 1))}
-                  disabled={!data.pagination.hasPrevPage}
-                  className="px-3 py-1 text-sm bg-background-tertiary rounded hover:bg-background disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                >
-                  Prev
-                </button>
-                <span className="px-3 py-1 text-sm text-foreground">
-                  Page {data.pagination.page} of {data.pagination.totalPages}
-                </span>
-                <button
-                  onClick={() => setPage(p => p + 1)}
-                  disabled={!data.pagination.hasNextPage}
-                  className="px-3 py-1 text-sm bg-background-tertiary rounded hover:bg-background disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                >
-                  Next
-                </button>
-                <button
-                  onClick={() => setPage(data.pagination.totalPages)}
-                  disabled={!data.pagination.hasNextPage}
-                  className="px-3 py-1 text-sm bg-background-tertiary rounded hover:bg-background disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                >
-                  Last
-                </button>
-              </div>
+              {data.pagination.totalPages > 1 && (
+                <div className="flex items-center gap-1">
+                  <button
+                    onClick={() => setPage(1)}
+                    disabled={!data.pagination.hasPrevPage}
+                    className="px-3 py-1.5 text-sm font-medium bg-background-tertiary text-foreground rounded-l-lg border border-border hover:bg-background disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                  >
+                    First
+                  </button>
+                  <button
+                    onClick={() => setPage(p => Math.max(1, p - 1))}
+                    disabled={!data.pagination.hasPrevPage}
+                    className="px-3 py-1.5 text-sm font-medium bg-background-tertiary text-foreground border-y border-border hover:bg-background disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                  >
+                    Prev
+                  </button>
+                  <span className="px-4 py-1.5 text-sm font-medium bg-background text-foreground border border-border">
+                    {data.pagination.page} / {data.pagination.totalPages}
+                  </span>
+                  <button
+                    onClick={() => setPage(p => p + 1)}
+                    disabled={!data.pagination.hasNextPage}
+                    className="px-3 py-1.5 text-sm font-medium bg-background-tertiary text-foreground border-y border-border hover:bg-background disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                  >
+                    Next
+                  </button>
+                  <button
+                    onClick={() => setPage(data.pagination.totalPages)}
+                    disabled={!data.pagination.hasNextPage}
+                    className="px-3 py-1.5 text-sm font-medium bg-background-tertiary text-foreground rounded-r-lg border border-border hover:bg-background disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                  >
+                    Last
+                  </button>
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -531,6 +670,35 @@ export default function Dashboard() {
           <p>Trigger.dev Warm Start Service</p>
         </div>
       </div>
+
+      {/* Clear Confirmation Modal */}
+      {showClearModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-background-secondary border border-border rounded-lg p-6 max-w-md w-full mx-4 shadow-xl">
+            <h3 className="text-lg font-semibold text-foreground mb-2">Clear All Matches?</h3>
+            <p className="text-foreground-muted text-sm mb-6">
+              This will clear all recent match history from the cache. The warm start and cold start counters will be preserved until the service restarts.
+            </p>
+            <div className="flex items-center justify-end gap-3">
+              <button
+                onClick={() => setShowClearModal(false)}
+                disabled={clearing}
+                className="px-4 py-2 text-sm bg-background-tertiary text-foreground rounded-lg hover:bg-background transition-colors disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={clearMatches}
+                disabled={clearing}
+                className="flex items-center gap-2 px-4 py-2 text-sm bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors disabled:opacity-50"
+              >
+                <TrashIcon className="w-4 h-4" />
+                {clearing ? "Clearing..." : "Clear All"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

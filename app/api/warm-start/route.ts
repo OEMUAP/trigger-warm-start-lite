@@ -8,6 +8,13 @@ import {
 } from "@/lib/state";
 
 const MAX_RECENT_MATCHES = 100000;
+const DEBUG = process.env.DEBUG_LOGGING === "true" || process.env.DEBUG_LOGGING === "1";
+
+function debugLog(message: string, data?: unknown) {
+  if (DEBUG) {
+    console.log(`[${new Date().toISOString()}] [DEBUG] ${message}`, data ? JSON.stringify(data, null, 2) : "");
+  }
+}
 
 interface DequeuedMessage {
   deployment?: { friendlyId?: string };
@@ -28,7 +35,17 @@ export async function GET(request: NextRequest) {
   const machineMemory = request.headers.get("x-trigger-machine-memory") ?? "0";
   const workerInstanceName = request.headers.get("x-trigger-worker-instance-name") ?? "unknown";
 
+  debugLog("GET /warm-start - Runner connecting", {
+    deploymentId,
+    deploymentVersion,
+    controllerId,
+    machineCpu,
+    machineMemory,
+    workerInstanceName,
+  });
+
   if (!deploymentId || !deploymentVersion || !controllerId) {
+    debugLog("GET /warm-start - Missing required headers");
     return NextResponse.json({ error: "Missing required headers" }, { status: 400 });
   }
 
@@ -82,7 +99,10 @@ export async function POST(request: NextRequest) {
   const body = await request.json();
   const dequeuedMessage: DequeuedMessage = body.dequeuedMessage;
 
+  debugLog("POST /warm-start - Incoming workload", { body });
+
   if (!dequeuedMessage) {
+    debugLog("POST /warm-start - Missing dequeuedMessage");
     return NextResponse.json({ didWarmStart: false, error: "Missing dequeuedMessage" }, { status: 400 });
   }
 
@@ -90,6 +110,14 @@ export async function POST(request: NextRequest) {
   const deploymentVersion = dequeuedMessage.backgroundWorker?.version;
   const machineCpu = String(dequeuedMessage.run?.machine?.cpu ?? "0");
   const machineMemory = String(dequeuedMessage.run?.machine?.memory ?? "0");
+
+  debugLog("POST /warm-start - Parsed workload", {
+    runId: dequeuedMessage.run?.friendlyId,
+    deploymentId,
+    deploymentVersion,
+    machineCpu,
+    machineMemory,
+  });
 
   if (!deploymentId) {
     console.log(`[${new Date().toISOString()}] [warm-start] No deployment ID in message`);
@@ -99,11 +127,18 @@ export async function POST(request: NextRequest) {
   const key = warmStartKey(deploymentId, deploymentVersion ?? "", machineCpu, machineMemory);
   const runners = waitingRunners.get(key);
 
+  debugLog("POST /warm-start - Looking for runners", {
+    key,
+    availableRunners: runners?.length ?? 0,
+    allKeys: Array.from(waitingRunners.keys()),
+  });
+
   if (!runners || runners.length === 0) {
     const runId = dequeuedMessage.run?.friendlyId ?? "unknown";
     console.log(
       `[${new Date().toISOString()}] [warm-start] No idle runners for key: ${key} (cpu: ${machineCpu}, mem: ${machineMemory})`
     );
+    debugLog("POST /warm-start - COLD START", { runId, key });
     // Track failed match (cold start)
     recordMatch({
       runId,
@@ -131,6 +166,13 @@ export async function POST(request: NextRequest) {
   console.log(
     `[${new Date().toISOString()}] [warm-start] Matched run ${runId} to runner ${runner.controllerId} (waited ${waitDurationMs}ms)`
   );
+  debugLog("POST /warm-start - WARM START", {
+    runId,
+    controllerId: runner.controllerId,
+    workerInstanceName: runner.workerInstanceName,
+    waitDurationMs,
+    remainingRunners: runners.length,
+  });
 
   // Track the match (warm start)
   recordMatch({

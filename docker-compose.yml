@@ -15,6 +15,7 @@ services:
       - PORT=8080
       - CONNECTION_TIMEOUT_MS=30000
       - KEEPALIVE_MS=300000
+      - DEBUG_LOGGING=${DEBUG_LOGGING:-false}
     networks:
       - trigger-supervisor
     healthcheck:

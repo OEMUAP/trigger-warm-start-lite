@@ -31,10 +31,16 @@ export interface Config {
   host: string;
 }
 
+interface MatchCounters {
+  warmStarts: number;
+  coldStarts: number;
+}
+
 declare global {
   var __warmStartState: {
     waitingRunners: Map<string, WaitingRunner[]>;
     recentMatches: MatchedRun[];
+    counters: MatchCounters;
     config: Config;
   };
 }
@@ -43,6 +49,10 @@ if (!global.__warmStartState) {
   global.__warmStartState = {
     waitingRunners: new Map(),
     recentMatches: [],
+    counters: {
+      warmStarts: 0,
+      coldStarts: 0,
+    },
     config: {
       connectionTimeoutMs: parseInt(process.env.CONNECTION_TIMEOUT_MS ?? "30000", 10),
       keepaliveMs: parseInt(process.env.KEEPALIVE_MS ?? "300000", 10),
@@ -54,6 +64,7 @@ if (!global.__warmStartState) {
 
 export const waitingRunners = global.__warmStartState.waitingRunners;
 export const recentMatches = global.__warmStartState.recentMatches;
+export const counters = global.__warmStartState.counters;
 export const config = global.__warmStartState.config;
 
 export function warmStartKey(
@@ -78,17 +89,29 @@ export function getStats() {
   for (const runners of waitingRunners.values()) {
     totalRunners += runners.length;
   }
-  const successfulMatches = recentMatches.filter(m => m.success).length;
-  const failedMatches = recentMatches.filter(m => !m.success).length;
   return {
     totalRunners,
     totalDeployments: waitingRunners.size,
-    totalMatches: recentMatches.length,
-    successfulMatches,
-    failedMatches,
+    recentMatchesCount: recentMatches.length,
+    warmStarts: counters.warmStarts,
+    coldStarts: counters.coldStarts,
+    totalMatches: counters.warmStarts + counters.coldStarts,
   };
+}
+
+export function recordMatch(match: MatchedRun, maxRecentMatches: number): void {
+  recentMatches.unshift(match);
+  if (recentMatches.length > maxRecentMatches) {
+    recentMatches.pop();
+  }
+  if (match.success) {
+    counters.warmStarts++;
+  } else {
+    counters.coldStarts++;
+  }
 }
 
 export function clearRecentMatches(): void {
   recentMatches.length = 0;
+  // Counters persist until app restart
 }

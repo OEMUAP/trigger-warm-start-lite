@@ -1,13 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
   waitingRunners,
-  recentMatches,
   warmStartKey,
   removeWaitingRunner,
+  recordMatch,
   type WaitingRunner,
 } from "@/lib/state";
 
-const MAX_RECENT_MATCHES = 1000;
+const MAX_RECENT_MATCHES = 100000;
 
 interface DequeuedMessage {
   deployment?: { friendlyId?: string };
@@ -104,8 +104,8 @@ export async function POST(request: NextRequest) {
     console.log(
       `[${new Date().toISOString()}] [warm-start] No idle runners for key: ${key} (cpu: ${machineCpu}, mem: ${machineMemory})`
     );
-    // Track failed match
-    recentMatches.unshift({
+    // Track failed match (cold start)
+    recordMatch({
       runId,
       controllerId: "",
       workerInstanceName: "",
@@ -115,10 +115,7 @@ export async function POST(request: NextRequest) {
       matchedAt: Date.now(),
       waitDurationMs: 0,
       success: false,
-    });
-    if (recentMatches.length > MAX_RECENT_MATCHES) {
-      recentMatches.pop();
-    }
+    }, MAX_RECENT_MATCHES);
     return NextResponse.json({ didWarmStart: false });
   }
 
@@ -135,8 +132,8 @@ export async function POST(request: NextRequest) {
     `[${new Date().toISOString()}] [warm-start] Matched run ${runId} to runner ${runner.controllerId} (waited ${waitDurationMs}ms)`
   );
 
-  // Track the match
-  recentMatches.unshift({
+  // Track the match (warm start)
+  recordMatch({
     runId,
     controllerId: runner.controllerId,
     workerInstanceName: runner.workerInstanceName,
@@ -146,10 +143,7 @@ export async function POST(request: NextRequest) {
     matchedAt: Date.now(),
     waitDurationMs,
     success: true,
-  });
-  if (recentMatches.length > MAX_RECENT_MATCHES) {
-    recentMatches.pop();
-  }
+  }, MAX_RECENT_MATCHES);
 
   // Send the dequeued message to the waiting runner
   try {

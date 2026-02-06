@@ -124,7 +124,7 @@ interface DashboardData {
   recentMatches: MatchedRun[];
   pagination: Pagination;
   config: { connectionTimeoutMs: number; keepaliveMs: number; port: number; host: string };
-  stats: { totalRunners: number; totalDeployments: number; totalMatches: number; successfulMatches: number; failedMatches: number };
+  stats: { totalRunners: number; totalDeployments: number; totalMatches: number; warmStarts: number; coldStarts: number };
   timestamp: number;
 }
 
@@ -278,11 +278,11 @@ export default function Dashboard() {
           </div>
           <div className="bg-background-secondary border border-border rounded-lg p-4">
             <div className="text-foreground-muted text-xs uppercase tracking-wide">Warm Starts</div>
-            <div className="text-3xl font-bold text-green-500 mt-1">{data.stats.successfulMatches}</div>
+            <div className="text-3xl font-bold text-green-500 mt-1">{data.stats.warmStarts}</div>
           </div>
           <div className="bg-background-secondary border border-border rounded-lg p-4">
             <div className="text-foreground-muted text-xs uppercase tracking-wide">Cold Starts</div>
-            <div className="text-3xl font-bold text-red-500 mt-1">{data.stats.failedMatches}</div>
+            <div className="text-3xl font-bold text-red-500 mt-1">{data.stats.coldStarts}</div>
           </div>
         </div>
 

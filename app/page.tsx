@@ -155,6 +155,7 @@ function formatTime(timestamp: number): string {
 export default function Dashboard() {
   const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
+  const [connected, setConnected] = useState(true);
   const [expandedRunners, setExpandedRunners] = useState<Set<string>>(new Set());
   const [expandedExecuting, setExpandedExecuting] = useState<Set<string>>(new Set());
   const [expandedMatches, setExpandedMatches] = useState<Set<string>>(new Set());
@@ -226,8 +227,10 @@ export default function Dashboard() {
         const res = await fetch(`/api/dashboard?page=${page}&limit=100`);
         const json = await res.json();
         setData(json);
+        setConnected(true);
       } catch (err) {
         console.error("Failed to fetch dashboard data:", err);
+        setConnected(false);
       } finally {
         setLoading(false);
       }
@@ -284,10 +287,17 @@ export default function Dashboard() {
             </div>
             <div>
               <div className="text-foreground-muted text-xs uppercase tracking-wide">Status</div>
-              <div className="text-accent font-medium flex items-center gap-2">
-                <span className="w-2 h-2 bg-accent rounded-full animate-pulse"></span>
-                Active
-              </div>
+              {connected ? (
+                <div className="text-green-500 font-medium flex items-center gap-2">
+                  <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></span>
+                  Connected
+                </div>
+              ) : (
+                <div className="text-red-500 font-medium flex items-center gap-2">
+                  <span className="w-2 h-2 bg-red-500 rounded-full"></span>
+                  Disconnected
+                </div>
+              )}
             </div>
           </div>
         </div>
